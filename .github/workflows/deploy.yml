@@ -1,0 +1,109 @@
+name: Deploy to wzhiypm.com
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'projects/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: '操作类型'
+        type: choice
+        options:
+          - deploy
+          - rollback
+        default: deploy
+        required: true
+      project:
+        description: '项目名（如 dashboard）'
+        type: string
+        required: true
+      version:
+        description: '回滚版本（仅 rollback 时需要，如 v2）'
+        type: string
+        required: false
+
+env:
+  HOST: ${{ secrets.DEPLOY_HOST }}
+  USER: ${{ secrets.DEPLOY_USER }}
+
+jobs:
+  deploy:
+    name: ${{ inputs.action == 'rollback' && '回滚' || '部署' }} ${{ inputs.project || '' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔍 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 📦 识别项目名
+        id: project
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- projects/)
+            PROJECT=$(echo "$CHANGED" | grep -oP 'projects/\K[^/]+' | sort -u | head -1)
+            if [ -z "$PROJECT" ]; then
+              echo "No project changes detected, exiting"
+              exit 0
+            fi
+            echo "name=$PROJECT" >> $GITHUB_OUTPUT
+            echo "📦 检测到项目: $PROJECT"
+          else
+            echo "name=${{ inputs.project }}" >> $GITHUB_OUTPUT
+          fi
+
+      # ========== 构建（仅 deploy） ==========
+      - name: ⚙️ 设置 Node.js 20
+        if: inputs.action != 'rollback'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 🔨 构建 ${{ steps.project.outputs.name }}
+        if: inputs.action != 'rollback'
+        working-directory: projects/${{ steps.project.outputs.name }}
+        run: |
+          if [ -f "package-lock.json" ]; then npm ci; else npm install; fi
+          npm run build
+          echo "📁 构建产物:"
+          ls -la dist/ 2>/dev/null || ls -la build/ 2>/dev/null || echo "(使用项目根目录)"
+
+      # ========== SSH 配置 ==========
+      - name: 🔑 配置 SSH 密钥
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" | base64 -d > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H $HOST >> ~/.ssh/known_hosts 2>/dev/null
+
+      # ========== 回滚 ==========
+      - name: ↩️ 回滚到 ${{ inputs.version }}
+        if: inputs.action == 'rollback'
+        run: |
+          ssh $USER@$HOST "deploy-wzhiypm ${{ inputs.project }} --rollback ${{ inputs.version }}"
+          echo "✅ 回滚完成: https://wzhiypm.com/projects/${{ inputs.project }}/"
+
+      # ========== 传输 + 部署 ==========
+      - name: 📤 传输构建产物到服务器
+        if: inputs.action != 'rollback'
+        run: |
+          SRC="projects/${{ steps.project.outputs.name }}"
+          # 自动识别构建输出目录
+          if [ -d "$SRC/dist" ]; then
+            BUILD_DIR="$SRC/dist"
+          elif [ -d "$SRC/build" ]; then
+            BUILD_DIR="$SRC/build"
+          else
+            BUILD_DIR="$SRC"
+          fi
+          rsync -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            -az --delete "$BUILD_DIR/" $USER@$HOST:/tmp/deploy-${{ steps.project.outputs.name }}/
+
+      - name: 🚀 执行服务器部署
+        if: inputs.action != 'rollback'
+        run: |
+          ssh $USER@$HOST "deploy-wzhiypm ${{ steps.project.outputs.name }} /tmp/deploy-${{ steps.project.outputs.name }} && rm -rf /tmp/deploy-${{ steps.project.outputs.name }}"
+          echo "✅ https://wzhiypm.com/projects/${{ steps.project.outputs.name }}/"
