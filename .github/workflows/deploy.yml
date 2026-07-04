@@ -36,44 +36,43 @@ jobs:
     steps:
       - name: 🔍 检出代码
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
+      # ========== 识别项目名 ==========
       - name: 📦 识别项目名
         id: project
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- projects/)
-            PROJECT=$(echo "$CHANGED" | grep -oP 'projects/\\K[^/]+' | sort -u | head -1)
-            if [ -z "$PROJECT" ]; then
-              echo "No project changes detected, exiting"
-              exit 0
-            fi
-            echo "name=$PROJECT" >> $GITHUB_OUTPUT
-            echo "📦 检测到项目: $PROJECT"
+            CHANGED=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" -- projects/)
+            PROJECT=$(echo "$CHANGED" | grep -oP 'projects/\K[^/]+' | sort -u | head -1)
           else
-            echo "name=${{ inputs.project }}" >> $GITHUB_OUTPUT
+            PROJECT="${{ inputs.project }}"
           fi
+          if [ -z "$PROJECT" ]; then
+            echo "No project changes detected, exiting"
+            exit 0
+          fi
+          echo "name=$PROJECT" >> "$GITHUB_OUTPUT"
+          echo "📦 项目: $PROJECT"
+          echo "project_name=$PROJECT" >> "$GITHUB_ENV"
 
-      # 项目名映射：repo 目录名 → 服务器项目名
-      # 新增项目时在这里加一行，格式: "repo-dir|server-project-name"
+      # ========== 项目名映射 ==========
       - name: 🔄 映射服务器项目名
         id: server_name
         run: |
-          DIR_NAME="${{ steps.project.outputs.name }}"
-          # 静态映射表
-          case "$DIR_NAME" in
+          PROJECT="${{ steps.project.outputs.name }}"
+          case "$PROJECT" in
             shipping-estimate)
               SERVER="20260703_1205-渠道运费预估"
               ;;
             *)
-              SERVER="$DIR_NAME"
+              SERVER="$PROJECT"
               ;;
           esac
-          echo "name=$SERVER" >> $GITHUB_OUTPUT
-          echo "🔄 映射: $DIR_NAME → $SERVER"
+          echo "name=$SERVER" >> "$GITHUB_OUTPUT"
+          echo "server_name=$SERVER" >> "$GITHUB_ENV"
+          echo "🔄 映射: $PROJECT → $SERVER"
 
-      # ========== 构建（仅 deploy） ==========
+      # ========== 构建 ==========
       - name: ⚙️ 设置 Node.js 22
         if: inputs.action != 'rollback'
         uses: actions/setup-node@v4
@@ -83,16 +82,12 @@ jobs:
       - name: 🔨 构建
         if: inputs.action != 'rollback'
         run: |
-          PROJECT="${{ steps.project.outputs.name }}"
-          echo "📦 项目名: [$PROJECT]"
-          echo "📂 当前目录: $(pwd)"
-          echo "📂 项目目录: projects/$PROJECT"
-          ls -la "projects/$PROJECT/package.json" 2>&1 || echo "❌ package.json not found"
-          cd "projects/$PROJECT"
+          echo "📦 项目: ${{ env.project_name }}"
+          echo "📂 $(pwd)/projects/${{ env.project_name }}"
+          cd "projects/${{ env.project_name }}"
           if [ -f "package-lock.json" ]; then npm ci; else npm install; fi
           npm run build
-          echo "📁 构建产物:"
-          ls -la dist/ 2>/dev/null || ls -la build/ 2>/dev/null || echo "(使用项目根目录)"
+          echo "✅ 构建完成"
 
       # ========== SSH 配置 ==========
       - name: 🔑 配置 SSH 密钥
@@ -106,15 +101,14 @@ jobs:
       - name: ↩️ 回滚到 ${{ inputs.version }}
         if: inputs.action == 'rollback'
         run: |
-          ssh $USER@$HOST "deploy-wzhiypm ${{ steps.server_name.outputs.name }} --rollback ${{ inputs.version }}"
-          echo "✅ 回滚完成: https://wzhiypm.com/projects/${{ steps.server_name.outputs.name }}/"
+          ssh $USER@$HOST "deploy-wzhiypm ${{ env.server_name }} --rollback ${{ inputs.version }}"
+          echo "✅ 回滚完成: https://wzhiypm.com/projects/${{ env.server_name }}/"
 
       # ========== 传输 + 部署 ==========
       - name: 📤 传输构建产物到服务器
         if: inputs.action != 'rollback'
         run: |
-          SRC="projects/${{ steps.project.outputs.name }}"
-          # 自动识别构建输出目录
+          SRC="projects/${{ env.project_name }}"
           if [ -d "$SRC/dist" ]; then
             BUILD_DIR="$SRC/dist"
           elif [ -d "$SRC/build" ]; then
@@ -123,10 +117,10 @@ jobs:
             BUILD_DIR="$SRC"
           fi
           rsync -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
-            -az --delete "$BUILD_DIR/" $USER@$HOST:/tmp/deploy-${{ steps.server_name.outputs.name }}/
+            -az --delete "$BUILD_DIR/" $USER@$HOST:/tmp/deploy-${{ env.server_name }}/
 
       - name: 🚀 执行服务器部署
         if: inputs.action != 'rollback'
         run: |
-          ssh $USER@$HOST "deploy-wzhiypm ${{ steps.server_name.outputs.name }} /tmp/deploy-${{ steps.server_name.outputs.name }} && rm -rf /tmp/deploy-${{ steps.server_name.outputs.name }}"
-          echo "✅ https://wzhiypm.com/projects/${{ steps.server_name.outputs.name }}/"
+          ssh $USER@$HOST "deploy-wzhiypm ${{ env.server_name }} /tmp/deploy-${{ env.server_name }} && rm -rf /tmp/deploy-${{ env.server_name }}"
+          echo "✅ https://wzhiypm.com/projects/${{ env.server_name }}/"
