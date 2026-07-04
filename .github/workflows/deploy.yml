@@ -110,14 +110,13 @@ jobs:
       - name: 📤 传输构建产物到服务器
         if: inputs.action != 'rollback'
         run: |
+          set -x
+          echo "🔑 测试 SSH 连接..."
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 $USER@$HOST "echo SSH_CONNECTED" 2>&1 || { echo "❌ SSH FAILED"; exit 1; }
           SRC="projects/${{ env.project_name }}"
-          if [ -d "$SRC/dist" ]; then
-            BUILD_DIR="$SRC/dist"
-          elif [ -d "$SRC/build" ]; then
-            BUILD_DIR="$SRC/build"
-          else
-            BUILD_DIR="$SRC"
-          fi
+          if [ -d "$SRC/dist" ]; then BUILD_DIR="$SRC/dist"
+          elif [ -d "$SRC/build" ]; then BUILD_DIR="$SRC/build"
+          else BUILD_DIR="$SRC"; fi
           rsync -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
             -az --delete "$BUILD_DIR/" $USER@$HOST:/tmp/deploy-${{ env.server_name }}/
 
