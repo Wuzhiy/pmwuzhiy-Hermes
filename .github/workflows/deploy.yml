@@ -74,11 +74,11 @@ jobs:
           echo "🔄 映射: $DIR_NAME → $SERVER"
 
       # ========== 构建（仅 deploy） ==========
-      - name: ⚙️ 设置 Node.js 20
+      - name: ⚙️ 设置 Node.js 22
         if: inputs.action != 'rollback'
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: 🔨 构建 ${{ steps.project.outputs.name }}
         if: inputs.action != 'rollback'
