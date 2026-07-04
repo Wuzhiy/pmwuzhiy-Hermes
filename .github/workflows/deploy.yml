@@ -16,7 +16,7 @@ on:
         default: deploy
         required: true
       project:
-        description: '项目名（如 dashboard）'
+        description: 'Repo 目录名（如 shipping-estimate）'
         type: string
         required: true
       version:
@@ -44,7 +44,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- projects/)
-            PROJECT=$(echo "$CHANGED" | grep -oP 'projects/\K[^/]+' | sort -u | head -1)
+            PROJECT=$(echo "$CHANGED" | grep -oP 'projects/\\K[^/]+' | sort -u | head -1)
             if [ -z "$PROJECT" ]; then
               echo "No project changes detected, exiting"
               exit 0
@@ -54,6 +54,24 @@ jobs:
           else
             echo "name=${{ inputs.project }}" >> $GITHUB_OUTPUT
           fi
+
+      # 项目名映射：repo 目录名 → 服务器项目名
+      # 新增项目时在这里加一行，格式: "repo-dir|server-project-name"
+      - name: 🔄 映射服务器项目名
+        id: server_name
+        run: |
+          DIR_NAME="${{ steps.project.outputs.name }}"
+          # 静态映射表
+          case "$DIR_NAME" in
+            shipping-estimate)
+              SERVER="20260703_1205-渠道运费预估"
+              ;;
+            *)
+              SERVER="$DIR_NAME"
+              ;;
+          esac
+          echo "name=$SERVER" >> $GITHUB_OUTPUT
+          echo "🔄 映射: $DIR_NAME → $SERVER"
 
       # ========== 构建（仅 deploy） ==========
       - name: ⚙️ 设置 Node.js 20
@@ -83,8 +101,8 @@ jobs:
       - name: ↩️ 回滚到 ${{ inputs.version }}
         if: inputs.action == 'rollback'
         run: |
-          ssh $USER@$HOST "deploy-wzhiypm ${{ inputs.project }} --rollback ${{ inputs.version }}"
-          echo "✅ 回滚完成: https://wzhiypm.com/projects/${{ inputs.project }}/"
+          ssh $USER@$HOST "deploy-wzhiypm ${{ steps.server_name.outputs.name }} --rollback ${{ inputs.version }}"
+          echo "✅ 回滚完成: https://wzhiypm.com/projects/${{ steps.server_name.outputs.name }}/"
 
       # ========== 传输 + 部署 ==========
       - name: 📤 传输构建产物到服务器
@@ -100,10 +118,10 @@ jobs:
             BUILD_DIR="$SRC"
           fi
           rsync -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
-            -az --delete "$BUILD_DIR/" $USER@$HOST:/tmp/deploy-${{ steps.project.outputs.name }}/
+            -az --delete "$BUILD_DIR/" $USER@$HOST:/tmp/deploy-${{ steps.server_name.outputs.name }}/
 
       - name: 🚀 执行服务器部署
         if: inputs.action != 'rollback'
         run: |
-          ssh $USER@$HOST "deploy-wzhiypm ${{ steps.project.outputs.name }} /tmp/deploy-${{ steps.project.outputs.name }} && rm -rf /tmp/deploy-${{ steps.project.outputs.name }}"
-          echo "✅ https://wzhiypm.com/projects/${{ steps.project.outputs.name }}/"
+          ssh $USER@$HOST "deploy-wzhiypm ${{ steps.server_name.outputs.name }} /tmp/deploy-${{ steps.server_name.outputs.name }} && rm -rf /tmp/deploy-${{ steps.server_name.outputs.name }}"
+          echo "✅ https://wzhiypm.com/projects/${{ steps.server_name.outputs.name }}/"
