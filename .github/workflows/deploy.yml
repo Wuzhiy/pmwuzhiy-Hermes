@@ -98,6 +98,9 @@ jobs:
           echo "${{ secrets.DEPLOY_SSH_KEY }}" | base64 -d > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H $HOST >> ~/.ssh/known_hosts 2>/dev/null
+          # 验证密钥和连接
+          echo "🔍 测试连接到 $USER@$HOST ..."
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 $USER@$HOST "echo ✅ SSH 连接成功" 2>&1 || { echo "❌ SSH 连接失败 - 请检查 DEPLOY_SSH_KEY 和 DEPLOY_HOST 密钥配置"; exit 1; }
 
       # ========== 回滚 ==========
       - name: ↩️ 回滚到 ${{ inputs.version }}
@@ -110,9 +113,6 @@ jobs:
       - name: 📤 传输构建产物到服务器
         if: inputs.action != 'rollback'
         run: |
-          set -x
-          echo "🔑 测试 SSH 连接..."
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 $USER@$HOST "echo SSH_CONNECTED" 2>&1 || { echo "❌ SSH FAILED"; exit 1; }
           SRC="projects/${{ env.project_name }}"
           if [ -d "$SRC/dist" ]; then BUILD_DIR="$SRC/dist"
           elif [ -d "$SRC/build" ]; then BUILD_DIR="$SRC/build"
