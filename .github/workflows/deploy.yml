@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: 🔍 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ========== 识别项目名 ==========
       - name: 📦 识别项目名
