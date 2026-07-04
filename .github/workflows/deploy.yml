@@ -80,10 +80,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: 🔨 构建 ${{ steps.project.outputs.name }}
+      - name: 🔨 构建
         if: inputs.action != 'rollback'
-        working-directory: projects/${{ steps.project.outputs.name }}
         run: |
+          PROJECT="${{ steps.project.outputs.name }}"
+          echo "📦 项目名: [$PROJECT]"
+          echo "📂 当前目录: $(pwd)"
+          echo "📂 项目目录: projects/$PROJECT"
+          ls -la "projects/$PROJECT/package.json" 2>&1 || echo "❌ package.json not found"
+          cd "projects/$PROJECT"
           if [ -f "package-lock.json" ]; then npm ci; else npm install; fi
           npm run build
           echo "📁 构建产物:"
