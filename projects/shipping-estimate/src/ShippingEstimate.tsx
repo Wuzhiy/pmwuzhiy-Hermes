@@ -766,10 +766,10 @@ export default function ShippingEstimate() {
                                                 muted: false
                                             },
                                             {
-                                                title: '平台物流未启用（接口返回可使用）',
+                                                title: '平台物流未启用',
                                                 channels: temuY2PlatformAvailableChannels,
-                                                selectable: true,
-                                                muted: false
+                                                selectable: false,
+                                                muted: true
                                             }
                                         ]
                                         : [
